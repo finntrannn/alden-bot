@@ -1,6 +1,18 @@
+export { TextStyle, ThreadType } from 'zca-js';
+export type {
+	API,
+	AttachmentSource,
+	GroupEvent as ZaloGroupEvent,
+	Mention,
+	Message,
+	MessageContent,
+	Style,
+} from 'zca-js';
+
 export { CommandBase } from '@/core/command/Command';
 export { CommandContext } from '@/core/command/Command';
 export type { CommandExecutionResult, CommandOptions } from '@/core/command/Command';
+export type { ParsedCommandArgs } from '@/utils/message';
 export { Event } from '@/core/event/Event';
 export { EventManager } from '@/core/event/EventManager';
 export type {

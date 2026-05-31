@@ -36,7 +36,7 @@ export abstract class PluginBase {
 
 	private readonly listeners: Array<() => void> = [];
 	private readonly commands: Array<CommandBase> = [];
-	private readonly registeredServices: string[] = [];
+	private readonly registeredServices = new Set<string>();
 	private readonly coreBot: AldenBot;
 
 	public i18n?: I18nManager;
@@ -104,6 +104,19 @@ export abstract class PluginBase {
 		return dispose;
 	}
 
+	protected registerAllEvents<T extends Event>(
+		handler: EventHandler<T>,
+		options?: EventListenerOptions | number,
+	): () => void {
+		const listenerOptions =
+			typeof options === 'number'
+				? options
+				: { priority: DEFAULT_PLUGIN_EVENT_PRIORITY, ...options };
+		const dispose = this.coreBot.eventManager.onAll(handler, listenerOptions);
+		this.listeners.push(dispose);
+		return dispose;
+	}
+
 	protected registerCommand(command: CommandBase): boolean {
 		if (this.i18n) {
 			command.i18n = this.i18n;
@@ -115,8 +128,34 @@ export abstract class PluginBase {
 		return false;
 	}
 
+	protected unregisterCommand(commandOrName: CommandBase | string): boolean {
+		const command =
+			typeof commandOrName === 'string'
+				? this.commands.find((registeredCommand) =>
+						[registeredCommand.name, ...registeredCommand.aliases]
+							.map((name) => name.toLowerCase())
+							.includes(commandOrName.toLowerCase()),
+					)
+				: this.commands.includes(commandOrName)
+					? commandOrName
+					: undefined;
+
+		if (!command) return false;
+
+		this.coreBot.commandManager.unregister(command);
+		const index = this.commands.indexOf(command);
+		if (index !== -1) {
+			this.commands.splice(index, 1);
+		}
+		return true;
+	}
+
 	protected scheduleTask(cronExp: string, callback: () => void | Promise<void>): boolean {
 		return this.coreBot.schedulerManager.schedule(this.description.name, cronExp, callback);
+	}
+
+	protected clearScheduledTasks(): void {
+		this.coreBot.schedulerManager.clearTasks(this.description.name);
 	}
 
 	protected registerService<T>(
@@ -129,9 +168,19 @@ export abstract class PluginBase {
 			owner: this.description.name,
 		});
 		if (registered) {
-			this.registeredServices.push(name);
+			this.registeredServices.add(name);
 		}
 		return registered;
+	}
+
+	protected unregisterService(name: string): boolean {
+		const unregistered = this.coreBot.unregisterService(name, {
+			owner: this.description.name,
+		});
+		if (unregistered) {
+			this.registeredServices.delete(name);
+		}
+		return unregistered;
 	}
 
 	protected getService<T>(name: string): T | undefined {
@@ -169,7 +218,7 @@ export abstract class PluginBase {
 		for (const name of this.registeredServices) {
 			this.coreBot.unregisterService(name, { owner: this.description.name });
 		}
-		this.registeredServices.length = 0;
+		this.registeredServices.clear();
 	}
 
 	public onLoad(): void | Promise<void> {}

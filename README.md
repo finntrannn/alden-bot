@@ -95,6 +95,10 @@ plugins/
     plugin.json
     src/
       main.ts
+    resources/
+      locales/
+        vi.json
+        en.json
     package.json
 ```
 
@@ -116,6 +120,16 @@ Minimal `plugin.json`:
 ```
 
 `plugin.json` is validated as a `PluginManifest`. Invalid plugins are skipped without crashing the bot.
+The `main` field must be a relative `.js`, `.mjs`, `.cjs`, `.ts`, `.mts`, or
+`.cts` file inside the plugin directory.
+
+For a starter plugin, run:
+
+```bash
+pnpm run create-plugin -- MyPlugin
+```
+
+The scaffold includes a command, permission node, TypeScript config, and plugin-local locale files that load through `I18nManager`.
 
 Plugin authors should import from the stable public API:
 
@@ -124,17 +138,28 @@ import { CommandBase, I18nManager, PluginBase } from '@/api';
 ```
 
 Deep imports from `src/...` are internal and may change between releases.
+Common Zalo message types used by public contracts, such as `ThreadType`,
+`Message`, and `MessageContent`, are also re-exported from `@/api`. Command
+helper result types such as `ParsedCommandArgs` are exported there too.
 
 Plugin code should treat `this.bot` as the public runtime center exposed by
 `@/api`. Prefer `ctx` helpers inside commands for replies, argument parsing,
 permissions, sessions, services, and translations.
 
+Inside plugins, use `this.registerCommand`, `this.registerEvent`,
+`this.registerAllEvents`, `this.registerService`, and `this.scheduleTask` so the
+runtime can clean them up during reload or shutdown. Use `this.unregisterCommand`
+or `this.unregisterService` when a plugin needs to remove one of its own
+commands or services before unload. Use `this.clearScheduledTasks` to stop all
+scheduled tasks owned by the plugin before unload.
+
 Command `execute(ctx)` may return `false` when the command was recognized but
 could not complete. That call will not consume cooldown; the command should send
 its own user-facing reason when needed.
 
-Use lowercase command names and aliases. Use dotted lowercase permission nodes
-and service names such as `my-plugin.command.use` or `economy`.
+Use lowercase command names and aliases. Permission nodes and service names must
+use dotted lowercase segments such as `my-plugin.command.use` or
+`my-plugin.service`.
 
 Custom plugin events can define `static eventType = 'plugin-id:event-name'` to
 avoid class-name collisions while still working across plugin module reloads.

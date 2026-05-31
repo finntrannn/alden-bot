@@ -28,6 +28,10 @@ function createBotStub() {
 		registerPermission: vi.fn(),
 		unregisterPermission: vi.fn(),
 	};
+	const eventManager = {
+		on: vi.fn(() => vi.fn()),
+		onAll: vi.fn(() => vi.fn()),
+	};
 
 	const bot = {
 		logger,
@@ -43,15 +47,13 @@ function createBotStub() {
 			register: vi.fn(() => true),
 			unregister: vi.fn(),
 		},
-		eventManager: {
-			on: vi.fn(() => vi.fn()),
-		},
+		eventManager,
 		registerService: vi.fn(() => true),
 		unregisterService: vi.fn(() => true),
 		getService: vi.fn(),
 	} as unknown as AldenBot;
 
-	return { bot, logger, permissionManager };
+	return { bot, logger, permissionManager, eventManager };
 }
 
 async function createPluginDir(
@@ -165,6 +167,130 @@ export default class ManualI18nPlugin extends PluginBase {
 
 		const plugin = manager.getPlugin('manual-i18n') as { i18n?: unknown } | undefined;
 		expect(plugin?.i18n).toBeUndefined();
+	});
+
+	it('unsubscribes all-event listeners registered through PluginBase', async () => {
+		const { bot, eventManager } = createBotStub();
+		const unsubscribe = vi.fn();
+		eventManager.onAll.mockReturnValue(unsubscribe);
+		const manager = new PluginManager(bot);
+		const pluginPath = await createPluginDir(
+			'all-events',
+			`
+import { PluginBase } from '@/api';
+
+export default class AllEventsPlugin extends PluginBase {
+	async onLoad() {
+		this.registerAllEvents(() => {});
+	}
+}
+`,
+		);
+
+		await expect(manager.loadPlugin(pluginPath)).resolves.toBe(true);
+		await expect(manager.unloadPlugin('all-events')).resolves.toBe(true);
+
+		expect(eventManager.onAll).toHaveBeenCalledWith(expect.any(Function), { priority: 30 });
+		expect(unsubscribe).toHaveBeenCalledOnce();
+	});
+
+	it('lets plugins unregister their own services before unload', async () => {
+		const { bot } = createBotStub();
+		const manager = new PluginManager(bot);
+		const pluginPath = await createPluginDir(
+			'service-owner',
+			`
+import { PluginBase } from '@/api';
+
+export default class ServiceOwnerPlugin extends PluginBase {
+	async onLoad() {
+		this.registerService('service-owner.api', { ready: true });
+		this.unregisterService('service-owner.api');
+	}
+}
+`,
+		);
+
+		await expect(manager.loadPlugin(pluginPath)).resolves.toBe(true);
+		await expect(manager.unloadPlugin('service-owner')).resolves.toBe(true);
+
+		expect(bot.registerService).toHaveBeenCalledWith(
+			'service-owner.api',
+			{ ready: true },
+			{ owner: 'service-owner' },
+		);
+		expect(bot.unregisterService).toHaveBeenCalledTimes(1);
+		expect(bot.unregisterService).toHaveBeenCalledWith('service-owner.api', {
+			owner: 'service-owner',
+		});
+	});
+
+	it('lets plugins unregister their own commands before unload', async () => {
+		const { bot } = createBotStub();
+		const manager = new PluginManager(bot);
+		const pluginPath = await createPluginDir(
+			'command-owner',
+			`
+import { CommandBase, PluginBase } from '@/api';
+
+class OwnedCommand extends CommandBase {
+	constructor() {
+		super({
+			name: 'owned',
+			description: 'owned.description',
+			aliases: ['owned-alias'],
+		});
+	}
+
+	execute() {}
+}
+
+export default class CommandOwnerPlugin extends PluginBase {
+	async onLoad() {
+		this.registerCommand(new OwnedCommand());
+		this.unregisterCommand('owned-alias');
+	}
+}
+`,
+		);
+
+		await expect(manager.loadPlugin(pluginPath)).resolves.toBe(true);
+		await expect(manager.unloadPlugin('command-owner')).resolves.toBe(true);
+
+		expect(bot.commandManager.register).toHaveBeenCalledOnce();
+		expect(bot.commandManager.unregister).toHaveBeenCalledOnce();
+		expect(bot.commandManager.unregister).toHaveBeenCalledWith(
+			expect.objectContaining({ name: 'owned' }),
+		);
+	});
+
+	it('lets plugins clear their own scheduled tasks before unload', async () => {
+		const { bot } = createBotStub();
+		const manager = new PluginManager(bot);
+		const pluginPath = await createPluginDir(
+			'task-owner',
+			`
+import { PluginBase } from '@/api';
+
+export default class TaskOwnerPlugin extends PluginBase {
+	async onLoad() {
+		this.scheduleTask('* * * * *', () => {});
+		this.clearScheduledTasks();
+	}
+}
+`,
+		);
+
+		await expect(manager.loadPlugin(pluginPath)).resolves.toBe(true);
+		await expect(manager.unloadPlugin('task-owner')).resolves.toBe(true);
+
+		expect(bot.schedulerManager.schedule).toHaveBeenCalledWith(
+			'task-owner',
+			'* * * * *',
+			expect.any(Function),
+		);
+		expect(bot.schedulerManager.clearTasks).toHaveBeenCalledWith('task-owner');
+		expect(bot.schedulerManager.clearTasks).toHaveBeenCalledTimes(2);
 	});
 
 	it('skips plugin classes that do not extend PluginBase', async () => {

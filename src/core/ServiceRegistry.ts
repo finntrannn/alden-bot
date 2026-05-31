@@ -14,6 +14,8 @@ interface ServiceEntry {
 	readonly owner?: string;
 }
 
+const VALID_SERVICE_NAME = /^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$/;
+
 export class ServiceRegistry {
 	private readonly services = new Map<string, ServiceEntry>();
 
@@ -24,12 +26,25 @@ export class ServiceRegistry {
 		service: T,
 		options: ServiceRegistrationOptions = {},
 	): boolean {
+		if (!VALID_SERVICE_NAME.test(name)) {
+			this.logger.warn(
+				`ServiceRegistry: "${name}" is invalid. Use dotted lowercase segments such as "my-plugin.service".`,
+			);
+			return false;
+		}
+
 		const existing = this.services.get(name);
 		if (existing && !options.replace) {
 			this.logger.warn(`ServiceRegistry: "${name}" is already registered. Keeping existing.`);
 			return false;
 		}
 		if (existing && options.replace) {
+			if (existing.owner !== options.owner) {
+				this.logger.warn(
+					`ServiceRegistry: "${name}" is owned by "${existing.owner ?? 'unknown'}"; "${options.owner ?? 'unknown'}" cannot replace it.`,
+				);
+				return false;
+			}
 			this.logger.warn(`ServiceRegistry: "${name}" is already registered. Replacing.`);
 		}
 		this.services.set(name, { service, owner: options.owner });
@@ -45,9 +60,9 @@ export class ServiceRegistry {
 		const existing = this.services.get(name);
 		if (!existing) return false;
 
-		if (options.owner !== undefined && existing.owner !== options.owner) {
+		if (existing.owner !== options.owner) {
 			this.logger.warn(
-				`ServiceRegistry: "${name}" is owned by "${existing.owner ?? 'unknown'}"; "${options.owner}" cannot unregister it.`,
+				`ServiceRegistry: "${name}" is owned by "${existing.owner ?? 'unknown'}"; "${options.owner ?? 'unknown'}" cannot unregister it.`,
 			);
 			return false;
 		}

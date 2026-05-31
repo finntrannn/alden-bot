@@ -95,6 +95,10 @@ plugins/
     plugin.json
     src/
       main.ts
+    resources/
+      locales/
+        vi.json
+        en.json
     package.json
 ```
 
@@ -116,6 +120,16 @@ plugins/
 ```
 
 `plugin.json` được validate theo `PluginManifest`. Plugin có manifest không hợp lệ sẽ bị skip, bot không crash.
+Field `main` phải là file `.js`, `.mjs`, `.cjs`, `.ts`, `.mts` hoặc `.cts`
+tương đối và nằm trong thư mục plugin.
+
+Để tạo plugin khởi đầu, chạy:
+
+```bash
+pnpm run create-plugin -- MyPlugin
+```
+
+Scaffold tạo sẵn command, permission node, TypeScript config và locale files riêng của plugin được load qua `I18nManager`.
 
 Tác giả plugin nên import từ public API ổn định:
 
@@ -124,17 +138,27 @@ import { CommandBase, I18nManager, PluginBase } from '@/api';
 ```
 
 Không nên deep import từ `src/...`; đó là phần internal và có thể đổi giữa các release.
+Các type Zalo message dùng trong public contract, như `ThreadType`, `Message`
+và `MessageContent`, cũng được re-export từ `@/api`. Các type kết quả helper
+command như `ParsedCommandArgs` cũng nằm ở đó.
 
 Plugin code nên xem `this.bot` là runtime center public được expose qua `@/api`.
 Trong command, ưu tiên helper trên `ctx` cho reply, parse args, permission,
 session, service và translation.
 
+Trong plugin, dùng `this.registerCommand`, `this.registerEvent`,
+`this.registerAllEvents`, `this.registerService` và `this.scheduleTask` để
+runtime tự cleanup khi reload hoặc shutdown. Dùng `this.unregisterCommand` hoặc
+`this.unregisterService` khi plugin cần gỡ command hoặc service của chính nó
+trước lúc unload. Dùng `this.clearScheduledTasks` để dừng toàn bộ scheduled task
+thuộc plugin trước lúc unload.
+
 Command `execute(ctx)` có thể trả về `false` khi command được nhận diện nhưng
 không thực hiện xong. Lần gọi đó sẽ không tính cooldown; command nên tự gửi lý do
 cho user khi cần.
 
-Command name và alias dùng lowercase. Permission node và service name nên dùng
-dotted lowercase như `my-plugin.command.use` hoặc `economy`.
+Command name và alias dùng lowercase. Permission node và service name phải dùng
+dotted lowercase như `my-plugin.command.use` hoặc `my-plugin.service`.
 
 Custom plugin event có thể đặt `static eventType = 'plugin-id:event-name'` để
 tránh trùng class name nhưng vẫn hoạt động qua các lần plugin module reload.
